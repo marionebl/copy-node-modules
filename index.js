@@ -1,190 +1,137 @@
 'use strict';
-var path = require('path');
-var fs = require('fs');
-var mkdirp = require('mkdirp');
-var jsonfile = require('jsonfile');
-var semver = require('semver');
-var async = require('async');
-var ncp = require('ncp').ncp;
-var uniqWith = require('lodash.uniqwith');
-var flatten = require('lodash.flatten');
-var g_opts = {};
 
-function isDirExists(directory)
-{
-    try
-    {
-        var stats = fs.lstatSync(directory);
-        if (stats.isDirectory())
-            return true;
-    }
-    catch(e)
-    {
-        return false;
-    }
-    return false;
-}
+const path = require('path');
+const fs = require('fs');
+const jsonfile = require('jsonfile');
+const semver = require('semver');
+const async = require('async');
+const ncp = require('ncp').ncp;
+const exists = require('path-exists');
+const up = require('find-up');
+const mkdirp = require('mkdirp-promise');
+const {entries, merge, uniqBy} = require('lodash');
+const sander = require('sander');
 
-function getPackageJson(pkgFolder)
-{
-    var pkgPath = path.resolve(pkgFolder, './package.json');
-    var pkgContent = null;
-    try
-    {
-        pkgContent = jsonfile.readFileSync(pkgPath, {throws: false});
-
-    }
-    catch(e)
-    {
-        // skip missing modules
-        return null;
-    }
-    return pkgContent;
-}
-
-function hasPackage(pkg, pkgs)
-{
-    for (var i = 0; i < pkgs.length; ++i)
-    {
-        if (pkgs[i].name === pkg.name  && pkgs[i].version === pkg.version)
-            return true;
-    }
-    return false;
-}
-
-function addPkgDeps(baseDir, pkg, pkgs, callback)
-{
-    var pkgDir = path.resolve(baseDir, './node_modules/' + pkg.name);
-    //console.log('checking dir:' + pkgDir);
-    var pkgContent = getPackageJson(pkgDir);
-    if (!pkgContent)
-        return;
-
-    if (hasPackage(pkgContent, pkgs))
-    {
-        //console.log('existed, pkg:' + pkgContent.name + ' ver:' + pkgContent.version) ;
-        return;
-    }
-
-    if (baseDir === g_opts.srcDir)
-    {
-        if (!semver.validRange(pkg.version))
-        {
-            pkgs.push({name: pkgContent.name, version: pkgContent.version});
-        }
-        else if (semver.satisfies(pkgContent.version, pkg.version))
-            pkgs.push({name: pkgContent.name, version: pkgContent.version});
-        else
-            return;
-    }
-
-    // recursive search sub modules
-    var subPkgBase = path.resolve(pkgDir, './node_modules');
-    if (isDirExists(subPkgBase))
-    {
-        var subPkgs = fs.readdirSync(subPkgBase);
-        for (var i in subPkgs)
-        {
-            var subPkgName = subPkgs[i];
-            addPkgDeps(pkgDir, {name: subPkgName, version: '*'}, pkgs, callback);
-        }
-    }
-
-    for (var pkgName in pkgContent.dependencies)
-    {
-        var version = pkgContent.dependencies[pkgName];
-        var depPkg = {name: pkgName, version: version};
-        addPkgDeps(g_opts.srcDir, depPkg, pkgs, callback);
-        addPkgDeps(pkgDir, depPkg, pkgs, callback);
-    }
-
-
-}
-
-function findPkgDeps(pkg, callback)
-{
-    var pkgs = [];
-    addPkgDeps(g_opts.srcDir, pkg, pkgs, callback);
-    callback(null, pkgs);
-}
-
-
-function copyModules(pkgContent, callback)
-{
-    var pkg = pkgContent.name;
-    var srcDir = path.resolve(g_opts.srcDir, './node_modules/' + pkg);
-    var dstDir = path.resolve(g_opts.dstDir, './node_modules/' + pkg);
-    var opts = {clobber: false};
-    mkdirp.sync(dstDir);
-    ncp(srcDir, dstDir, opts, function(err) {
-        callback(err);
-    });
-}
-
-function copyNodeModules(srcDir, dstDir, opts, callback)
-{
-    if (!srcDir)
-        throw new Error('missing source diretory argument');
-    if (!dstDir)
-        throw new Error('missing destination diretory argument');
-
-    if (!callback)
-    {
-        g_opts = {srcDir: srcDir, dstDir: dstDir, devDependencies: false};
-        callback = opts;
-    }
-    else
-    {
-        g_opts = opts || {};
-        g_opts.srcDir = srcDir;
-        g_opts.dstDir = dstDir;
-    }
-
-    var pkgPath = path.resolve(srcDir, './package.json');
-    var pkgContent = jsonfile.readFileSync(pkgPath, {throws: false});
-    if (!pkgContent)
-        throw new Error('parse package.json in source directory fail');
-
-
-    // prepare root package list
-    var rootPkgList = [];
-    for (var depPkgName in pkgContent.dependencies)
-        rootPkgList.push({name: depPkgName, version: pkgContent.dependencies[depPkgName]});
-
-    if (g_opts.devDependencies)
-    {
-        for (var devDepPkgName in pkgContent.devDependencies)
-            rootPkgList.push({name: devDepPkgName, version: pkgContent.dependencies[devDepPkgName]});
-    }
-
-    async.map(rootPkgList, findPkgDeps, function(err, results) {
-        if (err)
-        {
-            callback(err);
-            return;
-        }
-
-        var dstModuleDir = path.resolve(g_opts.dstDir, "./node_modules");
-        fs.stat(dstModuleDir, function(err, stat) {
-            if (err || !stat.isDirectory())
-            {
-                if (!mkdirp.sync(dstModuleDir))
-                {
-                    callback('Can not create destination node_modules directory');
-                    return;
-                }
-            }
-
-            var allPkgList = uniqWith(flatten(results), function(a, b) {
-                if (a.name === b.name && a.version === b.version)
-                    return true;
-                return false;
-            });
-
-            async.each(allPkgList, copyModules, function(err) {
-                callback(err, allPkgList);
-            });
-        });
-    });
-}
 module.exports = copyNodeModules;
+
+function copyNodeModules(options, callback) {
+  const pkgs = uniqBy(find(options)(), 'name');
+  return Promise.all(pkgs.map(pkg => copy(options)(pkg)));
+}
+
+function find(options) {
+  return () => {
+    return getDeps(path.dirname(path.resolve(options.manifest)), {
+      in: options.in,
+      out: options.out,
+      devDependencies: options.devDependencies
+    });
+  }
+}
+
+function copy(options) {
+  const opts = {
+    clobber: false,
+    dereference: true,
+    filter: name => {
+      const frags = path.dirname(name).split(path.sep);
+      return frags[frags.length - 1] !== '.bin';
+    }
+  };
+
+  return (pkg) => {
+    return new Promise((resolve, reject) => {
+      exists(pkg.out)
+        .then(e => {
+          if (e) {
+            return resolve();
+          }
+          return mkdirp(pkg.out);
+        })
+        .then(() => exists(pkg.out))
+        .then(e => cp(pkg.in, pkg.out, opts))
+        .then(() => {
+          return Promise.all(pkg.bin.map(b => {
+            return mkdirp(path.join(options.out, '.bin'))
+              .then(() => {
+                const to = path.resolve(options.out, '.bin', b.name);
+                if (!exists.sync(to)) {
+                  return sander.symlink(b.target).to(to);
+                }
+              });
+          }));
+        })
+    });
+  };
+}
+
+function cp(from, to, opts) {
+  return new Promise((resolve, reject) => {
+    ncp(from, to, opts, (err) => {
+      if (err) {
+        return reject(err);
+      }
+      resolve();
+    });
+  });
+}
+
+function getDeps(base, options, seed = []) {
+  const manifest = path.join(base, 'package.json');
+  const pkg = jsonfile.readFileSync(manifest);
+
+  if (seed.some(s => s.name === pkg.name)) {
+    return seed;
+  }
+
+  const deps = entries(pkg.dependencies || {}).map(([name, version]) => ({name, version}));
+
+  if (options.devDependencies) {
+    const dev = entries(pkg.devDependencies || {}).map(([name, version]) => ({name, version}));
+    Array.prototype.push.apply(deps, dev);
+  }
+
+  return deps
+    .reduce((dependencies, dep) => {
+      if (!seed.some(d => d.name === dep.name) && !dependencies.some(d => d.name === dep.name)) {
+        dep.in = getPath(options.in, dep.name);
+        dep.out = path.resolve(options.out, dep.name);
+        const dp = jsonfile.readFileSync(path.join(dep.in, 'package.json'));
+        dep.bin = getBin(dp, dep.in);
+        dependencies.push(dep);
+        Array.prototype.push.apply(dependencies, uniqBy(getDeps(dep.in, options, dependencies), 'id'));
+      }
+      return dependencies;
+    }, []);
+}
+
+function getBin(manifest, base) {
+  if (!manifest.bin) {
+    return [];
+  }
+  if (typeof manifest.bin === 'string') {
+    return [
+      {
+        name: manifest.name,
+        target: path.resolve(base, manifest.bin)
+      }
+    ];
+  }
+  return entries(manifest.bin).map(([name, target]) => ({name: name, target: path.resolve(base, target)}));
+}
+
+function getPath(base, name) {
+  const file = path.join(base, name);
+
+  if (exists.sync(file)) {
+    return fs.realpathSync(file);
+  }
+
+  const next = up.sync('node_modules', {cwd: path.join(base, '../..')});
+
+  if (!next) {
+    throw new Error(`Could not resolve ${name}`);
+  }
+
+  return getPath(next, name);
+}

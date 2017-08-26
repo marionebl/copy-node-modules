@@ -1,39 +1,28 @@
 {
-  "name": "copy-node-modules",
+  "name": "@marionebl/copy-node-modules",
   "version": "1.0.2",
-  "description": "Copy node modules listed in 'dependencies' or 'devDependencies' field of package.json to destination folder",
+  "description": "Copy node_modules stated in a package.json file",
   "main": "index.js",
+  "bin": "./cli.js",
   "repository": {
     "type": "git",
-    "url": "https://github.com/arloliu/copy-node-modules"
-  },
-  "bin": {
-    "copy-node-modules": "./bin/copy-node-modules.js"
-  },
-  "scripts": {
-    "test": "eslint ./index.js"
+    "url": "https://github.com/marionebl/copy-node-modules"
   },
   "keywords": [
     "install",
     "deployment",
     "package"
   ],
-  "engine": {
-    "node": ">=0.12"
-  },
-  "author": "Arlo Liu <arlo.liu@gmail.com>",
+  "author": "Mario Nebl <hello@mario-nebl.de>",
   "license": "MIT",
   "dependencies": {
-    "async": "^2.0.0-rc.4",
+    "find-up": "^2.1.0",
     "jsonfile": "^2.3.0",
-    "lodash.flatten": "^4.4.0",
-    "lodash.uniqwith": "^4.5.0",
-    "mkdirp": "^0.5.1",
+    "lodash": "^4.17.4",
+    "meow": "^3.7.0",
+    "mkdirp-promise": "^5.0.1",
     "ncp": "^2.0.0",
-    "semver": "^5.1.0"
-  },
-  "devDependencies": {
-    "eslint": "^2.9.0",
-    "eslint-plugin-node": "^1.2.1"
+    "path-exists": "^3.0.0",
+    "sander": "^0.6.0"
   }
 }
