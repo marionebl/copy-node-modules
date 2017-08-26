@@ -52,9 +52,13 @@ function copy(options) {
           return Promise.all(pkg.bin.map(b => {
             return mkdirp(path.join(options.out, '.bin'))
               .then(() => {
-                const to = path.resolve(options.out, '.bin', b.name);
-                if (!exists.sync(to)) {
-                  return sander.symlink(b.target).to(to);
+                const link = path.resolve(options.out, '.bin', b.name);
+                const target = path.relative(path.dirname(link), path.resolve(options.out, b.target));
+
+                if (exists.sync(link)) {
+                  return fs.unlinkSync(link);
+                } else {
+                  return fs.symlinkSync(target, link);
                 }
               });
           }));
@@ -62,7 +66,6 @@ function copy(options) {
     });
   };
 }
-
 function cp(from, to, opts) {
   return new Promise((resolve, reject) => {
     ncp(from, to, opts, (err) => {
@@ -111,11 +114,11 @@ function getBin(manifest, base) {
     return [
       {
         name: manifest.name,
-        target: path.resolve(base, manifest.bin)
+        target: path.relative(path.join(base, '..'), path.resolve(base, manifest.bin))
       }
     ];
   }
-  return entries(manifest.bin).map(([name, target]) => ({name: name, target: path.resolve(base, target)}));
+  return entries(manifest.bin).map(([name, target]) => ({name: name, target: path.relative(path.join(base, '..'), path.resolve(base, target))}));
 }
 
 function getPath(base, name) {
