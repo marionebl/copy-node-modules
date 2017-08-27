@@ -17,7 +17,7 @@ function copyNodeModules(options, callback) {
 
   // both in and out props should be unique
   const pkgs = uniqBy(uniqBy(fn(), 'in'), 'out')
-
+  
   // skip nested node_modules, we copy parents anyway
   const tasks = pkgs.filter(a => !pkgs.some(b => inside(a.in, b.in)));
 
@@ -121,9 +121,11 @@ function getGraph(base, options, deps, graph = []) {
       return subgraph;
     }
 
+    const outPath = getOutPath(options, pkg, inPath);
+
     dep.in = inPath;
-    dep.out = path.resolve(options.out, path.relative(options.in, inPath));
-    dep.bin = getBin(pkg, inPath);
+    dep.out = outPath;
+    dep.bin = getBin(pkg, outPath);
 
     graph.push(dep);
     subgraph.push(dep);
@@ -191,4 +193,11 @@ function getPath(base, name) {
   }
 
   return getPath(next, name);
+}
+
+function getOutPath(options, pkg, inPath) {
+  if (inPath.includes('/node_modules/')) {
+    return path.resolve(options.out, path.relative(options.in, inPath));
+  }
+  return path.resolve(options.out, pkg.name);
 }
