@@ -135,10 +135,17 @@ function getBinEntry(base) {
 
   return (name, target) => {
     return {
-      name: name,
+      name: getBinName(name),
       target: path.relative(binRoot, path.resolve(base, target))
     };
   };
+}
+
+function getBinName(name) {
+  if (name.charAt(0) !== '@') {
+    return name;
+  }
+  return name.split('/')[1];
 }
 
 function getBinRoot(base) {
