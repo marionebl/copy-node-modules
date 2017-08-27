@@ -1,6 +1,6 @@
 {
   "name": "@marionebl/copy-node-modules",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Copy node_modules stated in a package.json file",
   "main": "index.js",
   "bin": "./cli.js",
