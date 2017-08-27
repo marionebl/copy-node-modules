@@ -5,13 +5,32 @@ const fs = require('fs');
 const jsonfile = require('jsonfile');
 const up = require('find-up');
 const {entries, merge, uniqBy, sortBy} = require('lodash');
+const mkdirp = require('mkdirp-promise');
+const ncp = require('graceful-ncp');
 const sander = require('@marionebl/sander');
 
 module.exports = copyNodeModules;
 
 function copyNodeModules(options, callback) {
-  const pkgs = uniqBy(find(options)(), 'in');
-  return Promise.all(pkgs.map(pkg => copy(options)(pkg)));
+  const fn = find(options);
+  const cp = copy(options);
+
+  // both in and out props should be unique
+  const pkgs = uniqBy(uniqBy(fn(), 'in'), 'out')
+
+  // skip nested node_modules, we copy parents anyway
+  const tasks = pkgs.filter(a => !pkgs.some(b => inside(a.in, b.in)));
+
+  return Promise.all(tasks.map(task => cp(task)));
+}
+
+// Check if path a is inside path b
+function inside(candidate, parent) {
+  if (candidate === parent) {
+    return false;
+  }
+  const relative = path.relative(parent, candidate);
+  return Boolean(relative) && !relative.startsWith('..') && !path.isAbsolute(relative);
 }
 
 function find(options) {
@@ -25,40 +44,42 @@ function find(options) {
 }
 
 function copy(options) {
-  const opts = {
-    clobber: false,
-    dereference: true,
-    filter: name => {
-      const frags = path.dirname(name).split(path.sep);
-      return frags[frags.length - 1] !== '.bin';
-    }
-  };
-
   return (pkg) => {
-    return new Promise((resolve, reject) => {
-      sander.exists(pkg.out)
-        .then(e => {
-          if (!e) {
-            return sander.copydir(pkg.in).to(pkg.out);
-          }
-        })
-        .then(() => {
-          return sander.mkdir(options.out, '.bin')
-            .then(() => {
-              return Promise.all(pkg.bin.map(b => {
-                const link = path.resolve(options.out, '.bin', b.name);
-                const target = path.resolve(options.out, '.bin', b.target);
+    return Promise.all([sander.exists(pkg.in), sander.exists(pkg.out)])
+      .then(([inExists, outExists]) => {
+        if (inExists && !outExists) {
+          return mkdirp(path.dirname(pkg.out))
+            .then(() => ncopy(pkg.in, pkg.out));
+        }
+      })
+      .then(() => {
+        sander.mkdirSync(options.out, '.bin');
 
-                if (sander.existsSync(target)) {
-                  fs.chmodSync(target, 511);
-                }
-
-                return symlink(b.target, link);
-              }));
-            });
-        })
-    });
+        pkg.bin.map(bin => {
+          const link = path.resolve(options.out, '.bin', bin.name);
+          const target = path.resolve(options.out, '.bin', bin.target);
+          chmodx(target);
+          return symlink(bin.target, link);
+        });
+      });
   };
+}
+
+function ncopy(from, to) {
+  return new Promise((resolve, reject) => {
+    ncp(from, to, err => {
+      if (err) {
+        return reject(err);
+      }
+      resolve();
+    });
+  });
+}
+
+function chmodx(file) {
+  if (sander.existsSync(file)) {
+    fs.chmodSync(file, 511);
+  }
 }
 
 function symlink(target, link) {
