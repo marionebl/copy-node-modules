@@ -16,10 +16,10 @@
   "author": "Mario Nebl <hello@mario-nebl.de>",
   "license": "MIT",
   "dependencies": {
+    "@marionebl/sander": "^0.6.1",
     "find-up": "^2.1.0",
     "jsonfile": "^2.3.0",
     "lodash": "^4.17.4",
-    "meow": "^3.7.0",
-    "sander": "^0.6.0"
+    "meow": "^3.7.0"
   }
 }

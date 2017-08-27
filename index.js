@@ -5,7 +5,7 @@ const fs = require('fs');
 const jsonfile = require('jsonfile');
 const up = require('find-up');
 const {entries, merge, uniqBy, sortBy} = require('lodash');
-const sander = require('sander');
+const sander = require('@marionebl/sander');
 
 module.exports = copyNodeModules;
 
