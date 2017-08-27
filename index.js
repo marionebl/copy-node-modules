@@ -3,17 +3,14 @@
 const path = require('path');
 const fs = require('fs');
 const jsonfile = require('jsonfile');
-const ncp = require('ncp').ncp;
-const exists = require('path-exists');
 const up = require('find-up');
-const mkdirp = require('mkdirp-promise');
-const {entries, merge, uniqBy} = require('lodash');
+const {entries, merge, uniqBy, sortBy} = require('lodash');
 const sander = require('sander');
 
 module.exports = copyNodeModules;
 
 function copyNodeModules(options, callback) {
-  const pkgs = uniqBy(find(options)(), 'name');
+  const pkgs = uniqBy(find(options)(), 'in');
   return Promise.all(pkgs.map(pkg => copy(options)(pkg)));
 }
 
@@ -39,51 +36,49 @@ function copy(options) {
 
   return (pkg) => {
     return new Promise((resolve, reject) => {
-      exists(pkg.out)
+      sander.exists(pkg.out)
         .then(e => {
-          if (e) {
-            return resolve();
+          if (!e) {
+            return sander.copydir(pkg.in).to(pkg.out);
           }
-          return mkdirp(pkg.out);
         })
-        .then(() => exists(pkg.out))
-        .then(e => cp(pkg.in, pkg.out, opts))
         .then(() => {
-          return Promise.all(pkg.bin.map(b => {
-            return mkdirp(path.join(options.out, '.bin'))
-              .then(() => {
+          return sander.mkdir(options.out, '.bin')
+            .then(() => {
+              return Promise.all(pkg.bin.map(b => {
                 const link = path.resolve(options.out, '.bin', b.name);
-                const target = path.relative(path.dirname(link), path.resolve(options.out, b.target));
+                const target = path.resolve(options.out, '.bin', b.target);
 
-                if (exists.sync(link)) {
-                  return fs.unlinkSync(link);
-                } else {
-                  return fs.symlinkSync(target, link);
+                if (sander.existsSync(target)) {
+                  fs.chmodSync(target, 511);
                 }
-              });
-          }));
+
+                return symlink(b.target, link);
+              }));
+            });
         })
     });
   };
 }
-function cp(from, to, opts) {
-  return new Promise((resolve, reject) => {
-    ncp(from, to, opts, (err) => {
-      if (err) {
-        return reject(err);
-      }
-      resolve();
-    });
-  });
+
+function symlink(target, link) {
+  if (linkExists(link)) {
+    fs.unlinkSync(link);
+  }
+  fs.symlinkSync(target, link);
 }
 
-function getDeps(base, options, seed = []) {
+function linkExists(link) {
+  try {
+    return Boolean(fs.readlinkSync(link));
+  } catch (err) {
+    return false;
+  }
+}
+
+function getDeps(base, options) {
   const manifest = path.join(base, 'package.json');
   const pkg = jsonfile.readFileSync(manifest);
-
-  if (seed.some(s => s.name === pkg.name)) {
-    return seed;
-  }
 
   const deps = entries(pkg.dependencies || {}).map(([name, version]) => ({name, version}));
 
@@ -92,39 +87,72 @@ function getDeps(base, options, seed = []) {
     Array.prototype.push.apply(deps, dev);
   }
 
-  return deps
-    .reduce((dependencies, dep) => {
-      if (!seed.some(d => d.name === dep.name) && !dependencies.some(d => d.name === dep.name)) {
-        dep.in = getPath(options.in, dep.name);
-        dep.out = path.resolve(options.out, dep.name);
-        const dp = jsonfile.readFileSync(path.join(dep.in, 'package.json'));
-        dep.bin = getBin(dp, dep.in);
-        dependencies.push(dep);
-        Array.prototype.push.apply(dependencies, uniqBy(getDeps(dep.in, options, dependencies), 'id'));
-      }
-      return dependencies;
-    }, []);
+  const dir = path.resolve(options.in);
+  return sortBy(getGraph(dir, options, deps), 'name');
+}
+
+function getGraph(base, options, deps, graph = []) {
+  return deps.reduce((subgraph, dep) => {
+    const inPath = getPath(base, dep.name);
+    const pkg = jsonfile.readFileSync(path.join(inPath, 'package.json'));
+
+    if (graph.some(node => node.in === inPath)) {
+      return subgraph;
+    }
+
+    dep.in = inPath;
+    dep.out = path.resolve(options.out, path.relative(options.in, inPath));
+    dep.bin = getBin(pkg, inPath);
+
+    graph.push(dep);
+    subgraph.push(dep);
+
+    const dependencies = entries(pkg.dependencies || {}).map(([name, version]) => ({name, version}));
+    const graphDeps = getGraph(path.join(inPath, 'node_modules'), options, dependencies, graph);
+
+    Array.prototype.push.apply(subgraph, graphDeps);
+    return subgraph;
+  }, []);
 }
 
 function getBin(manifest, base) {
   if (!manifest.bin) {
     return [];
   }
+
+  const entry = getBinEntry(base);
+
   if (typeof manifest.bin === 'string') {
-    return [
-      {
-        name: manifest.name,
-        target: path.relative(path.join(base, '..'), path.resolve(base, manifest.bin))
-      }
-    ];
+    return [entry(manifest.name, manifest.bin)];
   }
-  return entries(manifest.bin).map(([name, target]) => ({name: name, target: path.relative(path.join(base, '..'), path.resolve(base, target))}));
+
+  return entries(manifest.bin)
+    .map(([name, target]) => entry(name, target));
+}
+
+function getBinEntry(base) {
+  const binRoot = getBinRoot(base);
+
+  return (name, target) => {
+    return {
+      name: name,
+      target: path.relative(binRoot, path.resolve(base, target))
+    };
+  };
+}
+
+function getBinRoot(base) {
+  const fragments = base.split(path.sep);
+  return fragments
+    .slice(0, fragments.lastIndexOf('node_modules') + 1)
+    .concat(['.bin'])
+    .join(path.sep);
 }
 
 function getPath(base, name) {
   const file = path.join(base, name);
 
-  if (exists.sync(file)) {
+  if (sander.existsSync(file)) {
     return fs.realpathSync(file);
   }
 
