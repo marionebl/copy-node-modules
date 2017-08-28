@@ -22,6 +22,7 @@
     "jsonfile": "^2.3.0",
     "lodash": "^4.17.4",
     "meow": "^3.7.0",
-    "mkdirp-promise": "^5.0.1"
+    "mkdirp-promise": "^5.0.1",
+    "throat": "^4.1.0"
   }
 }

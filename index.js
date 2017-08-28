@@ -8,6 +8,7 @@ const {entries, merge, uniqBy, sortBy} = require('lodash');
 const mkdirp = require('mkdirp-promise');
 const ncp = require('graceful-ncp');
 const sander = require('@marionebl/sander');
+const throat = require('throat');
 
 module.exports = copyNodeModules;
 
@@ -16,12 +17,9 @@ function copyNodeModules(options, callback) {
   const cp = copy(options);
 
   // both in and out props should be unique
-  const pkgs = uniqBy(uniqBy(fn(), 'in'), 'out')
-  
-  // skip nested node_modules, we copy parents anyway
-  const tasks = pkgs.filter(a => !pkgs.some(b => inside(a.in, b.in)));
+  const pkgs = uniqBy(uniqBy(fn(), 'in'), 'out');
 
-  return Promise.all(tasks.map(task => cp(task)));
+  return Promise.all(pkgs.map(throat(1, pkg => cp(pkg))));
 }
 
 // Check if path a is inside path b
